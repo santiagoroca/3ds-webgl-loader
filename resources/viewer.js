@@ -13,6 +13,7 @@ var vertex = [
 	"varying vec3 vPosition;",
 
 	"void main(void) {",
+        "gl_PointSize = 10.0;",
 		"gl_Position = uPMVMatrix * vec4(aVertexPosition, 1.0);",
 	        "vLightWeighting = aVertexColor;",
 	        "vPosition = aVertexPosition;",
@@ -197,7 +198,7 @@ var PAN_DELTA = 0.001;
 var MIN_PAN_DELTA = 0.0005;
 
 var PAN_SPEED = function(){
-      return 0.1;
+      return 0.01;
 };
 
 var ZOOM_DELTA = 0.0001;
@@ -242,6 +243,10 @@ function calculateMatrixWorld () {
         inverseMvMatrix = mat4.inverse(mvMatrix, mat4.create());
 }
 
+canvas.oncontextmenu = function () {
+    return false;
+}
+
 function onMouseMove(e){
 
 	//Orbit
@@ -254,10 +259,10 @@ function onMouseMove(e){
 
         //Pan
 	} else if (isRightClickPressed) {
-         	var right = vec3.normalize(context.mvMatrix.RIGHT);
+         	var right = vec3.normalize([-1.0, 0.0, 0.0]);
                 right = vec3.multiplyScalar(right, (lastMousex - e.x) * PAN_SPEED());
 
-                var up = vec3.normalize(context.mvMatrix.UP);
+                var up = vec3.normalize([0.0, -1.0, 0.0]);
                 up = vec3.multiplyScalar(up, -(lastMousey - e.y) * PAN_SPEED());
 
                 target = vec3.add(target, vec3.add(right, up) );
@@ -303,6 +308,69 @@ canvas.addEventListener('mousemove', onMouseMove);
 canvas.addEventListener('mousedown', onMouseDown);
 canvas.addEventListener('mouseup', onMouseUp);
 
+canvas.addEventListener('dblclick', function (e) {
+    var mousex = e.offsetX, mousey = e.offsetY;
+
+    // get an instance to the current program to restore afterwards
+    var previous_program = gl.getParameter(gl.CURRENT_PROGRAM);
+
+    // swap programs
+    gl.useProgram(pickerProgram);
+
+    // swap Framebuffer for "behind the scenes" rendering
+    gl.bindFramebuffer(gl.FRAMEBUFFER, _self.framebuffer);
+
+    // disable alpha blending. Prevents getting blended colors and improves performance.
+    gl.disable(gl.BLEND);
+
+    // Enable sissoring greatly improves performance.
+    gl.enable(gl.SCISSOR_TEST);
+
+    // Set values for scissor test
+    gl.scissor(mousex, canvas.height - mousey, 1, 1);
+
+    // perform a render swipe to the renderbuffer
+    render();
+
+    //_self.printImage();
+    // -- PICK
+    var readout = new Uint8Array(1 * 1 * 4);
+    gl.readPixels(mousex, glModule.canvas.height - mousey, 1, 1, gl.RGBA,gl.UNSIGNED_BYTE,readout);
+    var integer_readout = new Float32Array(readout.buffer)[0];
+
+    // attempt to round value
+    var fract = integer_readout - Math.floor(integer_readout);
+    if(fract > 0.5){
+        integer_readout = Math.ceil(integer_readout);
+    } else {
+        integer_readout = Math.floor(integer_readout);
+    }
+
+    var selected_guid;
+    // an integer readout = 0 means that the user clicked on a spot in the screen with no rendered geometries.
+    if(integer_readout != 0){
+        // interpretation of the integer_readout must be substracted 1 to obtain the proper index.
+        // check the comments in the picker colors section at the postproc/exporter.js module for more information.
+        selected_guid = _context.meta.list[integer_readout - 1.0];
+    }
+
+    // -- CLEAR
+    // disable scissors
+    gl.disable(gl.SCISSOR_TEST);
+
+    // enable back glblend
+    gl.enable(gl.BLEND);
+
+    // unbind Framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    //restore previous program if any
+    if(previous_program){
+        gl.useProgram(previous_program);
+    }
+
+});
+
 function render () {
 
 	gl.uniformMatrix4fv(shaderProgram.pPMVatrixUniform, false, mvpMatrix);
@@ -322,6 +390,8 @@ function render () {
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, scene[i][2]);
 
             gl.drawElements(gl.TRIANGLES, scene[i].count, gl.UNSIGNED_INT, 0);
+
+            gl.drawElements(gl.POINTS, scene[i].count, gl.UNSIGNED_INT, 0);
 	}
 
 	requestAnimationFrame(render);
@@ -330,4 +400,4 @@ function render () {
 render();
 
 
-read3DS("Free House 3DS.3DS");
+//read3DS("vase_01.3DS");
